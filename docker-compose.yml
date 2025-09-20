@@ -1,0 +1,10 @@
+services:
+  student_frontend:
+    build: .
+    ports:
+      - "5173:5173" # <-- pastikan ini ada, host:container
+    volumes:
+      - .:/app
+    stdin_open: true
+    tty: true
+    command: sh -c "npm install && npm run dev -- --host" # <-- penting
