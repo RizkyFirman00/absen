@@ -58,7 +58,20 @@ const StudentAttendance: React.FC = () => {
           return;
         }
 
-        const cameraId = devices[0].id;
+        const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+        // cari kamera belakang kalau mobile
+        let selectedCameraId = devices[0].id;
+        if (isMobile) {
+          const backCam = devices.find((d) =>
+            d.label.toLowerCase().includes("back")
+          );
+          if (backCam) {
+            selectedCameraId = backCam.id;
+          }
+        }
+
+        const cameraId = selectedCameraId;
 
         await html5QrCode.start(
           cameraId,
