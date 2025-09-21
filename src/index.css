@@ -7,3 +7,10 @@
   color: rgba(255, 255, 255, 0.87);
   background-color: #242424;
 }
+
+#reader {
+  width: 750px;
+  margin: 0 auto; /* biar center */
+  border-radius: 12px; /* opsional, biar ga kaku */
+  overflow: hidden;
+}

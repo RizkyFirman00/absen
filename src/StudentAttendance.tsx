@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
+import { Html5Qrcode } from "html5-qrcode";
 
 interface Student {
   id: string;
@@ -15,12 +16,12 @@ const StudentAttendance: React.FC = () => {
     return saved ? JSON.parse(saved) : [];
   });
   const [isScanning, setIsScanning] = useState(false);
+  const [scanner, setScanner] = useState<Html5Qrcode | null>(null);
   const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
   const [cameraError, setCameraError] = useState("");
-
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const [tempAbsenceReasons, setTempAbsenceReasons] = useState<
+    Record<string, string>
+  >({});
 
   // Load data murid dari localStorage
   useEffect(() => {
@@ -35,109 +36,126 @@ const StudentAttendance: React.FC = () => {
     localStorage.setItem("students", JSON.stringify(students));
   }, [students]);
 
-  // Start camera dan scanning
+  // Start scanner
   const startScanner = async () => {
-    try {
-      setIsScanning(true);
-      setCameraError("");
-
-      // Minta izin akses kamera
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-
-      streamRef.current = stream;
-
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-      }
-
-      // Mulai proses scanning
-      scanQRCode();
-    } catch (error) {
-      console.error("Error accessing camera:", error);
-      setCameraError(
-        "Tidak dapat mengakses kamera. Pastikan izin kamera diberikan."
-      );
-      setIsScanning(false);
+    if (students.length === 0) {
+      setCameraError("Belum ada data murid. Silakan tambahkan murid dulu.");
+      return;
     }
+
+    setIsScanning(true);
+    setCameraError("");
+
+    setTimeout(async () => {
+      try {
+        const html5QrCode = new Html5Qrcode("reader");
+        setScanner(html5QrCode);
+
+        const devices = await Html5Qrcode.getCameras();
+        if (!devices || devices.length === 0) {
+          setCameraError("Tidak ada kamera ditemukan.");
+          setIsScanning(false);
+          return;
+        }
+
+        const cameraId = devices[0].id;
+
+        await html5QrCode.start(
+          cameraId,
+          {
+            fps: 10,
+            qrbox: (viewfinderWidth, viewfinderHeight) => {
+              const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+              const boxSize = Math.floor(minEdgeSize * 0.7);
+              return { width: boxSize, height: boxSize };
+            },
+          },
+          (decodedText) => {
+            console.log("✅ QR Detected:", decodedText);
+            try {
+              const parsed = JSON.parse(decodedText);
+              if (parsed.id) {
+                handleQRScan(parsed.id, parsed);
+              } else {
+                alert("QR tidak valid ❌");
+              }
+            } catch (err) {
+              alert("QR tidak valid ❌, Error: " + err);
+            }
+
+            stopScanner();
+          },
+          (errorMessage) => {
+            console.log("🔍 scanning error:", errorMessage);
+          }
+        );
+      } catch (err) {
+        console.error("Error starting scanner:", err);
+        setCameraError("Tidak dapat mengakses kamera.");
+        setIsScanning(false);
+      }
+    }, 1000);
   };
 
-  // Stop camera
-  const stopScanner = () => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    setIsScanning(false);
-    setCurrentStudent(null);
-  };
-
-  // Process QR code scanning (Mock implementation)
-  const scanQRCode = () => {
-    if (!videoRef.current || !canvasRef.current || !isScanning) return;
-
-    // Mock QR scanning - untuk demo, kita akan simulasi scan otomatis
-    const mockScanInterval = setInterval(() => {
-      const availableStudents = students.filter((s) => !s.present);
-      if (availableStudents.length > 0 && isScanning) {
-        const randomStudent =
-          availableStudents[
-            Math.floor(Math.random() * availableStudents.length)
-          ];
-        handleQRScan(randomStudent.id);
-        clearInterval(mockScanInterval);
+  // Stop scanner
+  const stopScanner = async () => {
+    if (scanner) {
+      try {
+        await scanner.stop();
+        await scanner.clear();
+        setScanner(null);
+        setIsScanning(false);
+        console.log("🔴 Scanner stopped");
+      } catch (err) {
+        console.error("❌ Gagal stop scanner:", err);
       }
-    }, 3000);
-
-    // Cleanup interval jika scanning dihentikan
-    setTimeout(() => {
-      clearInterval(mockScanInterval);
-    }, 10000);
+    }
   };
 
   // Handle hasil scan QR code
-  const handleQRScan = (qrData: string) => {
-    const student = students.find((s) => s.id === qrData);
+  const handleQRScan = (scannedId: string, scannedData: Student) => {
+    const student = students.find((s) => s.id === scannedId);
 
-    if (student && !student.present) {
-      setCurrentStudent(student);
-
-      const updatedStudents = students.map((s) =>
-        s.id === qrData ? { ...s, present: true } : s
-      );
-      setStudents(updatedStudents);
-
-      setTimeout(() => {
-        stopScanner();
-      }, 2000);
+    if (student) {
+      if (student.present) {
+        setCurrentStudent(student);
+        alert(`${student.name} sudah diabsen ✅`);
+      } else {
+        const updated = students.map((s) =>
+          s.id === scannedId ? { ...s, present: true } : s
+        );
+        setStudents(updated);
+        setCurrentStudent({ ...student, present: true });
+        alert(`${student.name} berhasil diabsen ✅`);
+      }
+    } else {
+      const newStudent = { ...scannedData, present: true };
+      setStudents([...students, newStudent]);
+      setCurrentStudent(newStudent);
+      alert(`${newStudent.name} berhasil diabsen ✅ (data baru ditambahkan)`);
     }
   };
 
-  // // Simulasi scan manual untuk demo
-  // const simulateScan = (studentId: string) => {
-  //   const student = students.find((s) => s.id === studentId);
-  //   if (student && !student.present) {
-  //     handleQRScan(studentId);
-  //   }
-  // };
+  // Simpan alasan tidak hadir
+  const saveAbsenceReason = (studentId: string) => {
+    const reason = tempAbsenceReasons[studentId] || "";
+    const updated = students.map((s) =>
+      s.id === studentId ? { ...s, absenceReason: reason } : s
+    );
+    setStudents(updated);
+    setTempAbsenceReasons((prev) => {
+      const copy = { ...prev };
+      delete copy[studentId];
+      return copy;
+    });
+  };
 
   // Hitung statistik
   const presentCount = students.filter((s) => s.present).length;
   const absentCount = students.length - presentCount;
   const attendancePercentage = Math.round(
-    (presentCount / students.length) * 100
+    students.length > 0 ? (presentCount / students.length) * 100 : 0
   );
-
-  // Cleanup saat komponen unmount
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-      }
-    };
-  }, []);
 
   return (
     <>
@@ -236,40 +254,27 @@ const StudentAttendance: React.FC = () => {
                 </div>
               ) : (
                 <div className="text-center">
-                  <div className="position-relative d-inline-block">
-                    <video
-                      ref={videoRef}
-                      className="rounded border border-primary"
-                      style={{
-                        width: "100%",
-                        maxWidth: "500px",
-                        height: "300px",
-                        objectFit: "cover",
-                      }}
-                      muted
-                      playsInline
-                    />
-                    <canvas ref={canvasRef} className="d-none" />
-
-                    {/* Overlay targeting area */}
-                    <div
-                      className="position-absolute border border-primary rounded"
-                      style={{
-                        top: "50%",
-                        left: "50%",
-                        transform: "translate(-50%, -50%)",
-                        width: "200px",
-                        height: "200px",
-                        borderStyle: "dashed",
-                        borderWidth: "3px",
-                      }}
-                    ></div>
-                  </div>
+                  <div
+                    id="reader"
+                    // style={{
+                    //   width: "100%",
+                    //   maxWidth: "900px",
+                    //   margin: "0 auto",
+                    //   aspectRatio: "4/3",
+                    //   backgroundColor: "#000",
+                    //   borderRadius: "8px",
+                    //   overflow: "hidden",
+                    // }}
+                  ></div>
 
                   <div className="mt-3">
-                    <button onClick={stopScanner} className="btn btn-danger">
+                    <button
+                      onClick={stopScanner}
+                      disabled={!isScanning}
+                      className="btn btn-danger"
+                    >
                       <i className="fas fa-stop me-2"></i>
-                      Stop Scanning
+                      Berhenti Scanning
                     </button>
                     <p className="text-muted mt-2 mb-0">
                       <i className="fas fa-info-circle me-1"></i>
@@ -470,22 +475,23 @@ const StudentAttendance: React.FC = () => {
                                   type="text"
                                   className="form-control"
                                   placeholder="Masukkan alasan (sakit, izin, dll)"
-                                  value={student.absenceReason || ""}
+                                  value={
+                                    tempAbsenceReasons[student.id] ||
+                                    student.absenceReason ||
+                                    ""
+                                  }
                                   onChange={(e) => {
-                                    const updatedStudents = students.map((s) =>
-                                      s.id === student.id
-                                        ? {
-                                            ...s,
-                                            absenceReason: e.target.value,
-                                          }
-                                        : s
-                                    );
-                                    setStudents(updatedStudents);
+                                    const reason = e.target.value;
+                                    setTempAbsenceReasons((prev) => ({
+                                      ...prev,
+                                      [student.id]: reason,
+                                    }));
                                   }}
                                 />
                                 <button
                                   className="btn btn-outline-secondary"
                                   type="button"
+                                  onClick={() => saveAbsenceReason(student.id)}
                                 >
                                   <i className="fas fa-save"></i>
                                 </button>
