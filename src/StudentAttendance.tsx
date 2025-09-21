@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Html5Qrcode } from "html5-qrcode";
 
@@ -19,6 +19,7 @@ const StudentAttendance: React.FC = () => {
   const [scanner, setScanner] = useState<Html5Qrcode | null>(null);
   const [currentStudent, setCurrentStudent] = useState<Student | null>(null);
   const [cameraError, setCameraError] = useState("");
+  const isProcessingRef = useRef(false);
   const [tempAbsenceReasons, setTempAbsenceReasons] = useState<
     Record<string, string>
   >({});
@@ -77,11 +78,6 @@ const StudentAttendance: React.FC = () => {
           cameraId,
           {
             fps: 10,
-            qrbox: (viewfinderWidth, viewfinderHeight) => {
-              const minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
-              const boxSize = Math.floor(minEdgeSize * 0.7);
-              return { width: boxSize, height: boxSize };
-            },
           },
           (decodedText) => {
             console.log("✅ QR Detected:", decodedText);
@@ -96,7 +92,7 @@ const StudentAttendance: React.FC = () => {
               alert("QR tidak valid ❌, Error: " + err);
             }
 
-            stopScanner();
+            isProcessingRef.current = false;
           },
           (errorMessage) => {
             console.log("🔍 scanning error:", errorMessage);
@@ -127,26 +123,29 @@ const StudentAttendance: React.FC = () => {
 
   // Handle hasil scan QR code
   const handleQRScan = (scannedId: string, scannedData: Student) => {
-    const student = students.find((s) => s.id === scannedId);
+    setStudents((prev) => {
+      let updated = [...prev];
+      const student = updated.find((s) => s.id === scannedId);
 
-    if (student) {
-      if (student.present) {
-        setCurrentStudent(student);
-        alert(`${student.name} sudah diabsen ✅`);
+      if (student) {
+        if (student.present) {
+          alert(`${student.name} sudah diabsen ✅`);
+        } else {
+          updated = updated.map((s) =>
+            s.id === scannedId ? { ...s, present: true } : s
+          );
+          alert(`${student.name} berhasil diabsen ✅`);
+        }
       } else {
-        const updated = students.map((s) =>
-          s.id === scannedId ? { ...s, present: true } : s
-        );
-        setStudents(updated);
-        setCurrentStudent({ ...student, present: true });
-        alert(`${student.name} berhasil diabsen ✅`);
+        const newStudent = { ...scannedData, present: true };
+        updated.push(newStudent);
+        alert(`${newStudent.name} berhasil diabsen ✅ (data baru ditambahkan)`);
       }
-    } else {
-      const newStudent = { ...scannedData, present: true };
-      setStudents([...students, newStudent]);
-      setCurrentStudent(newStudent);
-      alert(`${newStudent.name} berhasil diabsen ✅ (data baru ditambahkan)`);
-    }
+
+      // setelah update selesai, baru stop kamera
+      stopScanner();
+      return updated;
+    });
   };
 
   // Simpan alasan tidak hadir

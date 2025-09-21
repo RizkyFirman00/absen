@@ -10,6 +10,7 @@
 
 #reader {
   width: 750px;
+  max-width: 100%;
   margin: 0 auto; /* biar center */
   border-radius: 12px; /* opsional, biar ga kaku */
   overflow: hidden;
